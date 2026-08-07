@@ -1,0 +1,13 @@
+.gradle/
+build/
+out/
+
+.idea/
+*.iml
+*.iws
+*.ipr
+
+.DS_Store
+Thumbs.db
+*.class
+hs_err_pid*

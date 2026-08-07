@@ -1,0 +1,35 @@
+name: Release
+
+# Pushing a tag is the whole release process. The tag drives the version, so the manifest baked
+# into the jar always matches the release HouseGraph downloads it from.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - run: chmod +x ./gradlew
+
+      - name: Build the shaded jar
+        run: ./gradlew build "-Pversion=${GITHUB_REF_NAME#v}"
+
+      - name: Attach it to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Exactly the shaded jar. HouseGraph installs a release's *-all.jar; a plain jar
+          # alongside it would be the unshaded build, missing this library's dependencies.
+          files: build/libs/*-all.jar
+          generate_release_notes: true

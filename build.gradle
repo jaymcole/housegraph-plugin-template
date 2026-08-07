@@ -1,0 +1,127 @@
+plugins {
+    id 'java'
+    // com.gradleup.shadow, NOT com.github.johnrengelman.shadow: the latter is unmaintained past
+    // 8.1.1 and breaks on recent Gradle.
+    id 'com.gradleup.shadow' version '8.3.5'
+    // Required. See the javafx block below for why you can't just declare the coordinates.
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+// ---------------------------------------------------------------------------------------------
+// Your library's identity. This is the only block most forks need to edit; the manifest baked
+// into the jar is generated from it, so its version can never drift from the one you release.
+// ---------------------------------------------------------------------------------------------
+ext {
+    pluginId          = 'housegraph-hello'
+    pluginName        = 'Hello World'
+    pluginRepository  = 'https://github.com/YOUR-USER/housegraph-hello'
+    pluginDescription = 'A one-node sample library for HouseGraph.'
+
+    // The housegraph-api version this was written against. The host refuses to load a library
+    // built for a major version it doesn't provide, rather than letting it fail later as a
+    // NoClassDefFoundError from inside a class scan.
+    pluginApiVersion  = '0.2'
+
+    // Every package the host should scan for node classes. Nodes outside these are invisible.
+    nodePackages      = ['com.example.housegraph.hello.nodes']
+
+    // Note the coordinate: JitPack serves this repository's api module at the repository-level
+    // coordinate, not com.github.jaymcole.HouseGraph:housegraph-api. The artifact named
+    // "HouseGraph" is housegraph-api -- the desktop app has no publication.
+    houseGraphApi     = 'com.github.jaymcole:HouseGraph:v0.2.0'
+}
+
+group   = 'com.example.housegraph'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://jitpack.io' }
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+
+// The host supplies JavaFX from its own class loader, but you still need it to COMPILE against,
+// because a node returns a javafx.scene.Node for its inline UI. HouseGraph's published metadata
+// names JavaFX without a platform classifier on purpose (so a release built on Linux can't pin
+// the wrong natives into your build), which means the unclassified artifacts are ~300-byte stubs.
+// This plugin resolves the real ones for your machine. Without it you'd see
+// "package javafx.scene does not exist".
+//
+// compileOnly, not the plugin's default implementation: anything on `implementation` is bundled
+// into the shaded jar, and shipping your own copy of JavaFX would be both enormous and wrong.
+javafx {
+    version = '21.0.4'
+    modules = ['javafx.controls']
+    configuration = 'compileOnly'
+}
+
+dependencies {
+    // compileOnly is REQUIRED, not a style choice. The host supplies housegraph-api and its
+    // transitive org.json / slf4j-api from the parent class loader. Bundling any of them gives
+    // this library its own BaseNode -- so every node in it fails the host's isAssignableFrom
+    // check during discovery and simply never appears -- and its own SLF4J binding, so every log
+    // line silently vanishes. The installer rejects a jar containing either.
+    compileOnly houseGraphApi
+    testImplementation houseGraphApi
+
+    // Anything declared `implementation` IS bundled into the shaded jar, and MUST be relocated
+    // below: all installed libraries share one class loader, so two libraries bundling different
+    // versions of the same dependency would otherwise fight.
+    // implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    testImplementation platform('org.junit:junit-bom:5.10.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// ---------------------------------------------------------------------------------------------
+// The manifest is GENERATED, never committed, so its version always matches what you released.
+// ---------------------------------------------------------------------------------------------
+def manifestDir = layout.buildDirectory.dir('generated/plugin-manifest')
+
+tasks.register('pluginManifest') {
+    outputs.dir(manifestDir)
+    // Re-run when any of the identity above changes, not just when the directory is missing.
+    inputs.property('identity', "$pluginId|$pluginName|$version|$pluginApiVersion|$pluginRepository|$nodePackages")
+    doLast {
+        def dir = manifestDir.get().dir('META-INF').asFile
+        dir.mkdirs()
+        new File(dir, 'housegraph-plugin.json').text = groovy.json.JsonOutput.prettyPrint(
+                groovy.json.JsonOutput.toJson([
+                        manifestVersion: 1,
+                        id             : pluginId,
+                        name           : pluginName,
+                        version        : project.version.toString(),
+                        apiVersion     : pluginApiVersion,
+                        repository     : pluginRepository,
+                        description    : pluginDescription,
+                        nodePackages   : nodePackages,
+                        categoryPrefix : pluginId.replaceFirst('^housegraph-', '')
+                ]))
+    }
+}
+sourceSets.main.output.dir(manifestDir, builtBy: 'pluginManifest')
+
+shadowJar {
+    // The host matches a library to its jar by name when a repository publishes several, so the
+    // asset must be <pluginId>-<version>-all.jar. Shadow's default classifier is already "all";
+    // this pins the base name to the plugin id rather than the project directory name.
+    archiveBaseName = pluginId
+
+    // REQUIRED whenever you bundle a library that uses ServiceLoader (DJL's engine discovery,
+    // JDBC drivers, ...). Without it those service files collide and the library fails at runtime
+    // with a confusing "no provider found".
+    mergeServiceFiles()
+
+    // Relocate EVERY bundled dependency. All installed libraries share one class loader.
+    // relocate 'okhttp3', 'com.example.housegraph.hello.shaded.okhttp3'
+}
+
+build.dependsOn shadowJar
