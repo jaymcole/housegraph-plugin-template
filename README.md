@@ -42,6 +42,26 @@ without it, at runtime, with a confusing "no provider found".
 It pins the id your node is written under in save files, independent of the class name. Without
 it, renaming or moving the class strands every graph anyone saved using it.
 
+## Node design: control vs. action
+
+Most nodes should be either **control-oriented** (a trigger, a timer, a branch, a loop —
+deciding *when* something downstream runs) or **action-oriented** (calling an API, reading a
+sensor, writing a file — doing the actual work), not both in one class.
+
+An action node's flow ports should describe the **outcome of one invocation** — "it ran," and
+optionally which of a few known results happened — not a schedule it manages itself. If your node
+wants to poll on an interval, don't give it its own timer: give it a flow-in and let a
+repeating-trigger node, wired upstream, decide when it fires. That keeps the action reusable with
+any trigger, and directly testable by calling `process()` on it rather than needing to spin up
+and tear down a timer to exercise it.
+
+**If a request for a new node describes it both scheduling/looping/branching its own execution
+*and* performing an external action, treat that as a smell** — ask whether it should be two
+composable nodes (a control node feeding an action node) before building the fused version. The
+one common exception is a *resource* node that owns a real connection lifecycle (a bot, a
+server) — see `AutoStartable` and `NodeContentProvider` in the table below — where the
+running/stopped state genuinely belongs to the node itself.
+
 ## Things that will bite you otherwise
 
 - **You must apply the JavaFX Gradle plugin** (this template does). HouseGraph's published
