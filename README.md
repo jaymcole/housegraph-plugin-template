@@ -44,27 +44,24 @@ it, renaming or moving the class strands every graph anyone saved using it.
 
 ## Node design: control, action, data, resource
 
-Most nodes should fit **one** of four shapes. Fusing two into one class is the most common
-design mistake — pick the right shape up front and the node stays reusable and directly testable.
+Most nodes should fit **one** of four shapes — Control, Action, Data, Resource. Fusing two into
+one class is the most common design mistake. The shapes are documented once, in HouseGraph
+itself:
+[`docs/architecture/nodes.md`](https://github.com/jaymcole/HouseGraph/blob/main/docs/architecture/nodes.md#node-roles-control-action-data-resource)
+— read that for what each one means and why. In short:
 
 - **Control** — a trigger, a timer, a branch, a loop: deciding *when* something downstream runs,
   not doing that something itself.
 - **Action** — calling an API, reading a sensor, writing a file: doing the actual work. Its flow
-  ports should describe the **outcome of one invocation** — "it ran," and optionally which of a
-  few known results happened — not a schedule it manages itself. If your node wants to poll on an
-  interval, don't give it its own timer: give it a flow-in and let a repeating-trigger node, wired
-  upstream, decide when it fires. That keeps the action reusable with any trigger, and directly
-  testable by calling `process()` on it rather than needing to spin up and tear down a timer to
-  exercise it.
+  ports should describe the **outcome of one invocation**, not a schedule it manages itself. If
+  your node wants to poll on an interval, don't give it its own timer: give it a flow-in and let a
+  repeating-trigger node, wired upstream, decide when it fires.
 - **Data** — no flow ports at all. Exists purely to be pulled: one or more data outputs, computed
-  or fetched on demand, with nothing to trigger and nothing to report.
+  or fetched on demand.
 - **Resource** — fronts a long-lived object your node owns (a bot, a server, a connection),
   registered in `ResourceRegistry` — see `AutoStartable` and `NodeContentProvider` in the table
-  below. Its flow shape follows the resource's own lifecycle rather than the control/action split:
-  some resource nodes have no flow ports at all (pure Start/Stop, driven entirely by their own
-  UI); some take a flow-in with no flow-out, ending a branch there (a restart/rebuild command);
-  some have a flow-out with no flow-in, starting a branch when the resource produces an event. A
-  one-sided flow shape is normal here — it's a smell only for Action nodes.
+  below. Its flow shape follows the resource's own lifecycle rather than the control/action split,
+  and that's expected, not a smell.
 
 **If a request for a new node describes it both scheduling/looping/branching its own execution
 *and* performing an external action, treat that as a smell** — ask whether it should be two
@@ -74,9 +71,8 @@ the node itself, because the connection is what's being managed.
 
 For real examples of all four shapes, see the built-in library in
 [`HouseGraph`](https://github.com/jaymcole/HouseGraph)'s `app/.../graph/nodes/` and the
-maintained libraries in [`housegraph-nodes`](https://github.com/jaymcole/housegraph-nodes) —
-e.g. `CreateFolderNode` (data), `SquirrelAlarmNode`/`DiscordSendMessageNode` (action),
-`DiscordBotNode`/`WebServerNode` (resource).
+maintained libraries in
+[`housegraph-nodes`](https://github.com/jaymcole/housegraph-nodes/blob/main/CLAUDE.md#node-design-control-action-data-resource).
 
 ## Things that will bite you otherwise
 
