@@ -19,48 +19,35 @@ Click **Use this template**, then:
 ./gradlew build
 ```
 
-## Four rules
+## Rules
 
-**1. `compileOnly` the API — never `implementation`.**
-HouseGraph supplies `housegraph-api` and its transitive `org.json` and `slf4j-api` from its own
-class loader. Bundling them gives your library its own copy of `BaseNode`, so every node in it
-fails the host's `isAssignableFrom` check during discovery and simply **never appears**, with
-nothing in the log to explain why. Bundling `slf4j-api` gives you a second logging binding with
-no outputs attached, so all your log lines silently vanish. The installer rejects a jar
-containing either, to turn those into one clear message.
+Two rules are the same for every out-of-tree node library, and are documented once, canonically,
+in HouseGraph's own docs rather than here:
+[`docs/architecture/plugins.md`](https://github.com/jaymcole/HouseGraph/blob/main/docs/architecture/plugins.md#consuming-housegraph-api) —
+**`compileOnly` the API, never `implementation`** (bundling it hides every node in your library
+from discovery with no explanation in the log), and **always `@Node.Type`, prefixed with your
+library id** (it pins the id your node is written under in save files, independent of the class
+name — without it, renaming or moving the class strands every graph anyone saved using it).
 
-**2. Relocate everything you bundle.**
+Two more are specific to bundling third-party dependencies into this template's shaded jar:
+
+**Relocate everything you bundle.**
 All installed libraries share one class loader. Two libraries bundling different versions of the
 same dependency would fight. Anything you declare `implementation` ends up in the shaded jar and
 needs a `relocate` line in `shadowJar`.
 
-**3. Keep `mergeServiceFiles()`.**
+**Keep `mergeServiceFiles()`.**
 Any bundled library that uses `ServiceLoader` — DJL's engine discovery, JDBC drivers — breaks
 without it, at runtime, with a confusing "no provider found".
 
-**4. Always `@Node.Type`, prefixed with your library id.**
-It pins the id your node is written under in save files, independent of the class name. Without
-it, renaming or moving the class strands every graph anyone saved using it.
-
 ## Node design: control vs. action
 
-Most nodes should be either **control-oriented** (a trigger, a timer, a branch, a loop —
-deciding *when* something downstream runs) or **action-oriented** (calling an API, reading a
-sensor, writing a file — doing the actual work), not both in one class.
-
-An action node's flow ports should describe the **outcome of one invocation** — "it ran," and
-optionally which of a few known results happened — not a schedule it manages itself. If your node
-wants to poll on an interval, don't give it its own timer: give it a flow-in and let a
-repeating-trigger node, wired upstream, decide when it fires. That keeps the action reusable with
-any trigger, and directly testable by calling `process()` on it rather than needing to spin up
-and tear down a timer to exercise it.
-
-**If a request for a new node describes it both scheduling/looping/branching its own execution
-*and* performing an external action, treat that as a smell** — ask whether it should be two
-composable nodes (a control node feeding an action node) before building the fused version. The
-one common exception is a *resource* node that owns a real connection lifecycle (a bot, a
-server) — see `AutoStartable` and `NodeContentProvider` in the table below — where the
-running/stopped state genuinely belongs to the node itself.
+Most nodes should be either **control-oriented** (deciding *when* something downstream runs) or
+**action-oriented** (doing the work, reporting only the outcome of one invocation), not both in
+one class — see HouseGraph's
+[`docs/architecture/nodes.md`](https://github.com/jaymcole/HouseGraph/blob/main/docs/architecture/nodes.md#designing-a-nodes-ports-control-vs-action)
+for the full rationale, the worked example, and the one common exception (a resource node that
+owns a real connection lifecycle — `AutoStartable` / `NodeContentProvider` in the table below).
 
 ## Things that will bite you otherwise
 
@@ -68,14 +55,10 @@ running/stopped state genuinely belongs to the node itself.
   metadata names JavaFX *without* a platform classifier on purpose, so a release built on Linux
   can't pin the wrong natives into your build — which means the unclassified artifacts are
   ~300-byte stubs. Without the plugin you get `package javafx.scene does not exist`.
-- **A node's static initializer runs at first instantiation, not at discovery.** The host loads
-  classes with `initialize = false`. So a type you register from a static block —
-  `ValueEditors.register(...)`, `TypeConverters.register(...)` — only takes effect once one of
-  your nodes exists. The symptom of assuming otherwise is "my custom type isn't editable until I
-  place the node twice." Registering from a constructor avoids the question.
-- **`onExecuted()` reaches you on the JavaFX thread**, dispatched through the host's callback
-  executor — so your UI code needs no `Platform.runLater`. Work *you* start (a socket bind, an
-  HTTP call, a gateway login) does: keep that off the FX thread and hop back to show its result.
+- **Static-initializer timing and which thread `onExecuted()` reaches you on** work the same way
+  here as in every node library — see
+  [`docs/architecture/ui.md`](https://github.com/jaymcole/HouseGraph/blob/main/docs/architecture/ui.md)
+  for both.
 - **The asset name matters if you publish several libraries from one repository.** HouseGraph
   matches a library to its jar as `<pluginId>-<version>-all.jar`. With a single library in the
   repository there's nothing to disambiguate and any name works.
