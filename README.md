@@ -42,25 +42,41 @@ without it, at runtime, with a confusing "no provider found".
 It pins the id your node is written under in save files, independent of the class name. Without
 it, renaming or moving the class strands every graph anyone saved using it.
 
-## Node design: control vs. action
+## Node design: control, action, data, resource
 
-Most nodes should be either **control-oriented** (a trigger, a timer, a branch, a loop —
-deciding *when* something downstream runs) or **action-oriented** (calling an API, reading a
-sensor, writing a file — doing the actual work), not both in one class.
+Most nodes should fit **one** of four shapes. Fusing two into one class is the most common
+design mistake — pick the right shape up front and the node stays reusable and directly testable.
 
-An action node's flow ports should describe the **outcome of one invocation** — "it ran," and
-optionally which of a few known results happened — not a schedule it manages itself. If your node
-wants to poll on an interval, don't give it its own timer: give it a flow-in and let a
-repeating-trigger node, wired upstream, decide when it fires. That keeps the action reusable with
-any trigger, and directly testable by calling `process()` on it rather than needing to spin up
-and tear down a timer to exercise it.
+- **Control** — a trigger, a timer, a branch, a loop: deciding *when* something downstream runs,
+  not doing that something itself.
+- **Action** — calling an API, reading a sensor, writing a file: doing the actual work. Its flow
+  ports should describe the **outcome of one invocation** — "it ran," and optionally which of a
+  few known results happened — not a schedule it manages itself. If your node wants to poll on an
+  interval, don't give it its own timer: give it a flow-in and let a repeating-trigger node, wired
+  upstream, decide when it fires. That keeps the action reusable with any trigger, and directly
+  testable by calling `process()` on it rather than needing to spin up and tear down a timer to
+  exercise it.
+- **Data** — no flow ports at all. Exists purely to be pulled: one or more data outputs, computed
+  or fetched on demand, with nothing to trigger and nothing to report.
+- **Resource** — fronts a long-lived object your node owns (a bot, a server, a connection),
+  registered in `ResourceRegistry` — see `AutoStartable` and `NodeContentProvider` in the table
+  below. Its flow shape follows the resource's own lifecycle rather than the control/action split:
+  some resource nodes have no flow ports at all (pure Start/Stop, driven entirely by their own
+  UI); some take a flow-in with no flow-out, ending a branch there (a restart/rebuild command);
+  some have a flow-out with no flow-in, starting a branch when the resource produces an event. A
+  one-sided flow shape is normal here — it's a smell only for Action nodes.
 
 **If a request for a new node describes it both scheduling/looping/branching its own execution
 *and* performing an external action, treat that as a smell** — ask whether it should be two
-composable nodes (a control node feeding an action node) before building the fused version. The
-one common exception is a *resource* node that owns a real connection lifecycle (a bot, a
-server) — see `AutoStartable` and `NodeContentProvider` in the table below — where the
-running/stopped state genuinely belongs to the node itself.
+composable nodes (a control node feeding an action node) before building the fused version.
+Resource is the one deliberate exception: there, the running/stopped state genuinely belongs to
+the node itself, because the connection is what's being managed.
+
+For real examples of all four shapes, see the built-in library in
+[`HouseGraph`](https://github.com/jaymcole/HouseGraph)'s `app/.../graph/nodes/` and the
+maintained libraries in [`housegraph-nodes`](https://github.com/jaymcole/housegraph-nodes) —
+e.g. `CreateFolderNode` (data), `SquirrelAlarmNode`/`DiscordSendMessageNode` (action),
+`DiscordBotNode`/`WebServerNode` (resource).
 
 ## Things that will bite you otherwise
 
