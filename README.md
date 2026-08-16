@@ -19,67 +19,23 @@ Click **Use this template**, then:
 ./gradlew build
 ```
 
-## Four rules
+## Read the rules first
 
-**1. `compileOnly` the API — never `implementation`.**
-HouseGraph supplies `housegraph-api` and its transitive `org.json` and `slf4j-api` from its own
-class loader. Bundling them gives your library its own copy of `BaseNode`, so every node in it
-fails the host's `isAssignableFrom` check during discovery and simply **never appears**, with
-nothing in the log to explain why. Bundling `slf4j-api` gives you a second logging binding with
-no outputs attached, so all your log lines silently vanish. The installer rejects a jar
-containing either, to turn those into one clear message.
+**→ [`docs/shared/node-library-rules.md`](docs/shared/node-library-rules.md)**
 
-**2. Relocate everything you bundle.**
-All installed libraries share one class loader. Two libraries bundling different versions of the
-same dependency would fight. Anything you declare `implementation` ends up in the shaded jar and
-needs a `relocate` line in `shadowJar`.
+The build rules, the API surface you can use, node design, and a word about trust. Every rule
+there has a **silent** failure mode — a node that never appears, logging that vanishes into
+nowhere, a saved graph that can't find its nodes again — so it is worth ten minutes before you
+write a build file.
 
-**3. Keep `mergeServiceFiles()`.**
-Any bundled library that uses `ServiceLoader` — DJL's engine discovery, JDBC drivers — breaks
-without it, at runtime, with a confusing "no provider found".
+In short: `compileOnly` the API, relocate everything you bundle, keep `mergeServiceFiles()`,
+always `@Node.Type` prefixed with your library id, and apply the JavaFX plugin. **This template
+already does all of that** — the rules matter when you start changing the build.
 
-**4. Always `@Node.Type`, prefixed with your library id.**
-It pins the id your node is written under in save files, independent of the class name. Without
-it, renaming or moving the class strands every graph anyone saved using it.
-
-## Things that will bite you otherwise
-
-- **You must apply the JavaFX Gradle plugin** (this template does). HouseGraph's published
-  metadata names JavaFX *without* a platform classifier on purpose, so a release built on Linux
-  can't pin the wrong natives into your build — which means the unclassified artifacts are
-  ~300-byte stubs. Without the plugin you get `package javafx.scene does not exist`.
-- **A node's static initializer runs at first instantiation, not at discovery.** The host loads
-  classes with `initialize = false`. So a type you register from a static block —
-  `ValueEditors.register(...)`, `TypeConverters.register(...)` — only takes effect once one of
-  your nodes exists. The symptom of assuming otherwise is "my custom type isn't editable until I
-  place the node twice." Registering from a constructor avoids the question.
-- **`onExecuted()` reaches you on the JavaFX thread**, dispatched through the host's callback
-  executor — so your UI code needs no `Platform.runLater`. Work *you* start (a socket bind, an
-  HTTP call, a gateway login) does: keep that off the FX thread and hop back to show its result.
-- **The asset name matters if you publish several libraries from one repository.** HouseGraph
-  matches a library to its jar as `<pluginId>-<version>-all.jar`. With a single library in the
-  repository there's nothing to disambiguate and any name works.
-
-## What you can use
-
-Everything in `housegraph-api`:
-
-| | |
-| --- | --- |
-| `graph` | `BaseNode`, `NodeVariable`, `FlowPort`, `Edge`, `ProcessContext`, `ExecutionPolicy`, `TypeConverters` |
-| `annotations` | `@Display.Name`, `@Node.Type`, `@Node.Disabled` |
-| `sdk` | `NodeContentProvider` (inline JavaFX UI), `AutoStartable` (resume on load), `ValueEditors`, `Secrets` |
-| `logging` | `Log.get(YourClass.class)` — lands in HouseGraph's own log window and file |
-| `resource` | `ResourceRegistry` — long-lived resources referenced by name rather than wired |
-| `storage`, `store` | `AppDirectories`, `SecretsStore`, `JsonDocumentStore` |
-
-## A word about trust
-
-A node library runs **inside HouseGraph's JVM with the user's full privileges**: their files,
-their network, their saved secrets. There is no sandbox — `SecurityManager` is gone in Java 21+
-and the module system carries no permission model. Installing a node library is exactly as
-dangerous as running any other program you downloaded, and HouseGraph says so when installing
-one. Please treat other people's trust accordingly.
+That file is maintained in
+[HouseGraph](https://github.com/jaymcole/HouseGraph/blob/main/docs/shared/node-library-rules.md)
+and synced here. Editing the copy in your repository is fine once you've used the template —
+it's your repository now — but it won't flow back upstream.
 
 ## License
 
